@@ -46,9 +46,9 @@ class FinancialSummaryAdmin(admin.ModelAdmin):
 
 @admin.register(Association)
 class AssociationAdmin(admin.ModelAdmin):
-    list_display = ('place', 'building_number_start', 'building_number_end')
+    list_display = ('place', "building_numbers")
     search_fields = ('place',)
-    list_filter = ('building_number_start', 'building_number_end')
+
     ordering = ('place',)
 
 

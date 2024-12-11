@@ -10,8 +10,7 @@ from django.utils.timezone import now
 # Association Model
 class Association(models.Model):
     place = models.CharField(max_length=100, unique=True)
-    building_number_start = models.IntegerField()
-    building_number_end = models.IntegerField()
+    building_numbers = models.CharField(max_length=100)
 
     def __str__(self):
         return f"{self.place} - {self.building_number_start} to {self.building_number_end}"
@@ -54,7 +53,7 @@ def household_document_path(instance, filename):
     custom_name = f"{instance.building_no}_{instance.apartment_number}_{
         instance.head_of_household}_{timestamp}{extension}"
     # Return the custom path
-    return f"documents/{custom_name}"
+    return f"media/documents/{custom_name}"
 
 
 class Household(models.Model):
@@ -91,6 +90,7 @@ class HouseholdMember(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     occupation = models.CharField(max_length=100, blank=True, null=True)
     contact_number = models.CharField(max_length=15, blank=True, null=True)
+    current_member = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.name} ({self.role}) - Apt {self.household.apartment_number}, Building {self.household.building_no}"
