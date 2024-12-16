@@ -13,7 +13,7 @@ class Association(models.Model):
     building_numbers = models.CharField(max_length=100)
 
     def __str__(self):
-        return f"{self.place} - {self.building_number_start} to {self.building_number_end}"
+        return f"{self.place} - {self.building_numbers}"
 
 
 class CustomUser(AbstractUser):
@@ -69,7 +69,7 @@ class Household(models.Model):
         upload_to=household_document_path, blank=True, null=True)
 
     def __str__(self):
-        return f"Apt {self.apartment_number}, Building {self.building_no}"
+        return f"Apt {self.apartment_number}, Building {self.building_no} {self.head_of_household}"
 
 
 class HouseholdMember(models.Model):
@@ -138,6 +138,9 @@ class Invoice(models.Model):
     is_paid = models.BooleanField(default=False)
     issued_date = models.DateField(default=now)
     penalty = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    created_by = models.CharField(max_length=100, default="")
+    payment_accepted_by = models.CharField(max_length=100, default="")
+    payment_date = models.DateField(null=True)
 
     def calculate_penalty(self):
         """Calculate the penalty based on overdue duration."""
@@ -146,19 +149,22 @@ class Invoice(models.Model):
             base_penalty = 0
 
             if overdue_days <= 10:
-                base_penalty = self.amount * 0.02 * overdue_days
+                base_penalty = self.amount * Decimal(0.02 * overdue_days)
             elif 10 < overdue_days <= 30:
                 base_penalty = (
-                    self.amount * 0.02 * 10 +  # 2% for the first 10 days
+                    # 2% for the first 10 days
+                    self.amount * Decimal(0.02 * 10) +
                     # 4% for the remaining days
-                    self.amount * 0.04 * (overdue_days - 10)
+                    self.amount * Decimal(0.04 * (overdue_days - 10))
                 )
             else:
                 base_penalty = (
-                    self.amount * 0.02 * 10 +  # 2% for the first 10 days
-                    self.amount * 0.04 * 20 +  # 4% for the next 20 days
+                    # 2% for the first 10 days
+                    self.amount * Decimal(0.02 * 10) +
+                    # 4% for the next 20 days
+                    self.amount * Decimal(0.04 * 20) +
                     # 5% for days above 30
-                    self.amount * 0.05 * (overdue_days - 30)
+                    self.amount * Decimal(0.05 * (overdue_days - 30))
                 )
 
             self.penalty = round(base_penalty, 2)
