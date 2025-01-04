@@ -32,7 +32,7 @@ class FinancialTransactionAdmin(admin.ModelAdmin):
 
 @admin.register(FinancialSummary)
 class FinancialSummaryAdmin(admin.ModelAdmin):
-    list_display = ('id', 'total_balance')
+    list_display = ('id', 'total_balance', "Association")
     # Make the balance field read-only to prevent accidental edits
     readonly_fields = ('id', 'total_balance')
     search_fields = ('id',)
@@ -100,6 +100,7 @@ class InvoiceAdmin(admin.ModelAdmin):
         'penalty',
         'issued_date',
         'overdue_status',
+        "group",
     )
     list_filter = ('is_paid', 'due_date', 'issued_date')
     search_fields = ('household__apartment_number', 'description')

@@ -1,3 +1,6 @@
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+import uuid
 from decimal import Decimal
 from datetime import date, timedelta
 from datetime import datetime
@@ -59,7 +62,7 @@ def household_document_path(instance, filename):
 class Household(models.Model):
     Association = models.ForeignKey(Association,  on_delete=models.CASCADE)
     apartment_number = models.CharField(max_length=10)
-    building_no = models.PositiveIntegerField()
+    building_no = models.CharField(max_length=100)
     head_of_household = models.CharField(max_length=100)
     contact_number = models.CharField(max_length=15)
     email = models.EmailField(blank=True, null=True)
@@ -114,6 +117,7 @@ class FinancialSummary(models.Model):
             self.save()
 
     def deduct_expense(self, amount):
+        print("expence deducted")
         if not isinstance(amount, Decimal):
             amount = Decimal(amount)
         # Deduct expense from the total balance.
@@ -126,6 +130,12 @@ class FinancialSummary(models.Model):
 
     def __str__(self):
         return f"Total Balance: {self.total_balance}"
+
+
+@receiver(post_save, sender=Association)
+def create_financial_summary(sender, instance, created, **kwargs):
+    if created:
+        FinancialSummary.objects.create(Association=instance)
 
 
 class Invoice(models.Model):
@@ -141,6 +151,7 @@ class Invoice(models.Model):
     created_by = models.CharField(max_length=100, default="")
     payment_accepted_by = models.CharField(max_length=100, default="")
     payment_date = models.DateField(null=True)
+    group = models.CharField(max_length=100, default=uuid.uuid4)
 
     def calculate_penalty(self):
         """Calculate the penalty based on overdue duration."""
@@ -197,12 +208,12 @@ class FinancialTransaction(models.Model):
     type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
-    date = models.DateField(default=now)
+    date = models.DateTimeField(auto_now_add=True)
     association = models.ForeignKey(
         Association, on_delete=models.CASCADE, related_name="transactions")
     accessed_by = models.CharField(max_length=50, null=True)
 
-    def save(self, *args, **kwargs):
+    def save(self, created_i=True, *args, **kwargs):
         """Override save to adjust financial summary when transaction is saved."""
         super().save(*args, **kwargs)
 
@@ -210,11 +221,26 @@ class FinancialTransaction(models.Model):
         # Assume a single record for simplicity
         financial_summary = FinancialSummary.objects.filter(
             Association=self.association).first()
-        if financial_summary:
+        print(financial_summary, self.association)
+        if financial_summary and created_i:
             if self.type == 'income':
-                pass
+                financial_summary.add_income(self.amount)
             elif self.type == 'expense':
                 financial_summary.deduct_expense(self.amount)
+
+    def delete(self, *args, **kwargs):
+        """Override delete to adjust financial summary when transaction is deleted."""
+        financial_summary = FinancialSummary.objects.filter(
+            Association=self.association).first()
+
+        if financial_summary:
+            if self.type == 'income':
+                financial_summary.deduct_income(self.amount)
+            elif self.type == 'expense':
+                financial_summary.add_expense(self.amount)
+
+        # Call the parent delete method
+        super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.type.capitalize()} - {self.amount}"
@@ -229,7 +255,7 @@ class Event(models.Model):
     association = models.ForeignKey(
         Association, on_delete=models.CASCADE, related_name="events"
     )
-    attendees = models.ManyToManyField(Household, through="EventAttendance")
+    created_by = models.CharField(max_length=50, default="")
     penalty_price = models.PositiveIntegerField(
         default=0)  # Total penalty price for this event
 
@@ -250,7 +276,7 @@ class Event(models.Model):
                 penalty_amount=0  # Initial penalty amount is set to 0
             )
 
-    def calculate_penalty_and_generate_invoices(self):
+    def calculate_penalty_and_generate_invoices(self, created_by=""):
         """Calculate and set penalties for all attendees and create invoices for applicable penalties."""
         for attendance in EventAttendance.objects.filter(event=self):
             penalty = attendance.calculate_penalty(
@@ -264,15 +290,21 @@ class Event(models.Model):
                 Invoice.objects.create(
                     household=attendance.household,
                     amount=penalty,
+                    created_by=created_by,
                     description=f"Penalty for event {self.name}",
                     # Assume payment due 7 days after the event
-                    due_date=self.date + timedelta(days=7),
+                    due_date=self.date + timedelta(days=14),
                     issued_date=now()
                 )
 
+    def delete(self, *args, **kwargs):
+        """Override delete to delete associated attendance records."""
+        eventattendance = EventAttendance.objects.filter(event=self)
+        for attendance in eventattendance:
+            attendance.delete()
+        super().delete(*args, **kwargs)
+
         # Round the total penalty to the nearest 25 (only if needed)
-        self.penalty_price = round(self.penalty_price / 25) * 25
-        self.save()
 
 
 class EventAttendance(models.Model):
@@ -291,8 +323,14 @@ class EventAttendance(models.Model):
         event_duration = (datetime.combine(date.today(), event_end_time) - datetime.combine(
             date.today(), event_start_time)).total_seconds() / 60  # Minutes
 
+        late_minutes = 0
+        early_exit_minutes = 0
+
         if not self.attended:
             penalty = self.event.penalty_price  # Full penalty for absence
+        elif (not self.entry_time and self.exit_time) or (not self.exit_time and self.entry_time):
+            penalty = self.event.penalty_price / 2  # Half penalty for partial attendance
+
         else:
             if self.entry_time and self.entry_time > datetime.combine(date.today(), event_start_time):
                 late_minutes = (
@@ -308,10 +346,12 @@ class EventAttendance(models.Model):
 
         # Ensure the penalty is rounded to the nearest 25
         penalty = round(penalty / 25) * 25
+        self.late_minutes = late_minutes + early_exit_minutes
+        self.save()
         return penalty
 
     def __str__(self):
-        return f"{self.household} - {self.event}"
+        return f"{self.id} {self.household} - {self.event}"
 
 
 # Project Model

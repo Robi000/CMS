@@ -1,3 +1,4 @@
+
 from datetime import date, datetime
 from rest_framework import serializers
 from API import models as api_model
@@ -116,6 +117,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'created_by',
             'payment_accepted_by',
             "payment_date",
+            'group',
             'status',
         )
         read_only_fields = ('penalty', 'issued_date', 'status')
@@ -196,3 +198,163 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     instance.amount + instance.penalty)
 
         return instance
+
+
+class InvoiceHomeSerializer(serializers.ModelSerializer):
+    # Nested household information
+
+    due_date = serializers.DateField(format="%Y-%m-%d")
+    # Custom fields for displaying status
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = api_model.Invoice
+        fields = (
+
+            'amount',
+            'description',
+            'due_date',
+            'issued_date',
+            'penalty',
+            'created_by',
+            'payment_accepted_by',
+            "payment_date",
+            'group',
+            'status',
+        )
+        read_only_fields = ('penalty', 'issued_date', 'status')
+
+    def get_status(self, obj):
+        """Determine invoice status."""
+        from datetime import date  # Ensure the date module is imported
+        if obj.is_paid:
+            return "Paid"
+        elif date.today() > obj.due_date:
+            return "Overdue"
+        return "Pending"
+
+
+class FinancialTransactionSerializer(serializers.ModelSerializer):
+    type_display = serializers.CharField(
+        source='get_type_display', read_only=True)
+    # Assuming the Association model has a `name` field
+    association_name = serializers.CharField(
+        source='association.name', read_only=True)
+
+    class Meta:
+        model = api_model.FinancialTransaction
+        fields = [
+            'id',
+            'type',
+            'type_display',
+            'amount',
+            'reason',
+            'date',
+            'association',
+            'association_name',
+            'accessed_by',
+        ]
+        read_only_fields = ['type_display', 'association_name']
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Amount must be greater than zero.")
+        return value
+
+    def validate(self, attrs):
+        if attrs['type'] == 'expense' and attrs['amount'] > self.context['financial_summary'].total_balance:
+            raise serializers.ValidationError(
+                "Expense exceeds the available balance.")
+        return attrs
+
+    def create(self, validated_data):
+        # Custom behavior on creation, if needed
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Custom behavior on update, if needed
+        return super().update(instance, validated_data)
+
+
+class EventAttendanceSerializer(serializers.ModelSerializer):
+    household_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = api_model.EventAttendance
+        fields = [
+            'id',
+            'household_info',
+            'event',
+            'attended',
+            'late_minutes',
+            'entry_time',
+            'exit_time',
+            'penalty_amount'
+        ]
+
+    def get_household_info(self, obj):
+        # Retrieve the household instance
+        household = obj.household
+
+        # Return the concatenated string of building_no + apartment_number and the head_of_household
+        return {
+            'house_number': f"B{household.building_no}-{household.apartment_number}",
+            'head_of_household': household.head_of_household
+        }
+
+    def validate_late_minutes(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Late minutes cannot be negative.")
+        return value
+
+    def validate_penalty_amount(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Penalty amount cannot be negative.")
+        return value
+
+
+class EventSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = api_model.Event
+        fields = [
+            'id',
+            'name',
+            'date',
+            'start_time',
+            'end_time',
+            'association',
+            'penalty_price'
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super(EventSerializer, self).__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and request.method == 'POST':
+            self.Meta.depth = 0
+        else:
+            self.Meta.depth = 1
+
+
+class ProjectProgressSerializer(serializers.ModelSerializer):
+    # Display project name in the progress update for readability
+    project_name = serializers.CharField(source='project.name', read_only=True)
+
+    class Meta:
+        model = api_model.ProjectProgress
+        fields = ['id', 'project', 'project_name',
+                  'description', 'timestamp', 'updated_by']
+        read_only_fields = ['timestamp']
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    # Include nested progress updates for a project
+    progress_updates = ProjectProgressSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = api_model.Project
+        fields = ['id', 'name', 'description', 'start_date',
+                  'end_date', 'association', 'progress_updates']
