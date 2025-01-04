@@ -1146,7 +1146,7 @@ class EventAttendanceUpdateAPIView(APIView):
 
 
 # * -------------------------------------------------------------------------------------------------
-# * ---------------------------------- project and project progress Views ----------------------------------
+# * ---------------------------------- project and project progress Views ---------------------------
 # * -------------------------------------------------------------------------------------------------
 
 # Generic views for Project
@@ -1173,6 +1173,7 @@ class ProjectRetrieveUpdateDestroyView(
 class ProjectProgressCreateView(generics.CreateAPIView):
     queryset = api_model.ProjectProgress.objects.all()
     serializer_class = api_serializers.ProjectProgressSerializer
+    look_up_field = "association"
 
 
 class ProjectProgressRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
